@@ -1,9 +1,6 @@
 package com.sprint.mission.discodeit.service.basic;
 
-import com.sprint.mission.discodeit.dto.user.UserCreateRequest;
-import com.sprint.mission.discodeit.dto.user.UserListResponse;
-import com.sprint.mission.discodeit.dto.user.UserResponse;
-import com.sprint.mission.discodeit.dto.user.UserUpdateRequest;
+import com.sprint.mission.discodeit.dto.user.*;
 import com.sprint.mission.discodeit.entity.*;
 import com.sprint.mission.discodeit.exception.DuplicateResourceException;
 import com.sprint.mission.discodeit.exception.user.UserNotFoundException;
@@ -36,7 +33,7 @@ public class BasicUserService implements UserService {
     private final UserMapper userMapper;
 
     @Override
-    public UserResponse create(UserCreateRequest request, MultipartFile profile)
+    public UserDto create(UserCreateRequest request, MultipartFile profile)
             throws IOException {
 
         this.validateUniqueUsername(request.username());
@@ -54,16 +51,18 @@ public class BasicUserService implements UserService {
                 request.password(),
                 newProfileId);
         UserStatus userStatus = new UserStatus(user.getId());
+        userStatus.makeOnline();
 
         this.userRepository.save(user);
         this.userStatusRepository.save(userStatus);
 
-        return this.userMapper.toUserResponse(user, userStatus);
+        return this.userMapper.toUserDto(user);
     }
 
     private BinaryContent createProfileImage(MultipartFile profile) throws IOException {
             BinaryContent profileImage = new BinaryContent(
                     profile.getOriginalFilename(),
+                    profile.getSize(),
                     profile.getContentType(),
                     profile.getBytes());
 
@@ -99,6 +98,8 @@ public class BasicUserService implements UserService {
         User user = findUserEntity(userId);
         UserStatus userStatus = this.findUserStatus(user.getId());
 
+        userStatus.makeOnline();
+
         return this.userMapper.toUserResponse(user, userStatus);
     }
 
@@ -121,6 +122,8 @@ public class BasicUserService implements UserService {
                             "ID가 " + user.getId() + "인 user의 userStatus를 찾을 수 없습니다."
                     ));
 
+            userStatus.makeOnline();
+
             userResponses.add(this.userMapper.toUserResponse(user, userStatus));
         }
 
@@ -128,7 +131,7 @@ public class BasicUserService implements UserService {
     }
 
     @Override
-    public UserResponse update(
+    public UserDto update(
             UUID userId,
             UserUpdateRequest request,
             MultipartFile profile
@@ -136,11 +139,20 @@ public class BasicUserService implements UserService {
 
         User user = this.findUserEntity(userId);
 
-        if (!Objects.equals(request.newUsername(), user.getUsername())) {
-            validateUniqueUsername(request.newUsername());
+        String newUsername = null;
+        String newEmail = null;
+        String newPassword = null;
+
+        if (request.newUsername() != null) {
+            this.validateUniqueUsername(request.newUsername());
+            newUsername = request.newUsername();
         }
-        if (!Objects.equals(request.newEmail(), user.getEmail())) {
-            validateUniqueEmail(request.newEmail());
+        if (request.newEmail() != null) {
+            this.validateUniqueEmail(request.newEmail());
+            newEmail = request.newEmail();
+        }
+        if (request.newPassword() != null) {
+            newPassword = request.newPassword();
         }
 
         UUID oldProfileId = user.getProfileId();
@@ -152,20 +164,19 @@ public class BasicUserService implements UserService {
         }
 
         user.update(
-                request.newUsername(),
-                request.newEmail(),
-                request.newPassword(),
+                newUsername,
+                newEmail,
+                newPassword,
                 newProfileId
         );
 
-        User updatedUser = userRepository.save(user);
-        UserStatus userStatus = this.findUserStatus(userId);
+        userRepository.save(user);
 
         if (newProfileId != null && oldProfileId != null) {
             binaryContentRepository.deleteById(oldProfileId);
         }
 
-        return this.userMapper.toUserResponse(updatedUser, userStatus);
+        return this.userMapper.toUserDto(user);
     }
 
     @Override

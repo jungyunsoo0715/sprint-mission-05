@@ -9,7 +9,6 @@ import com.sprint.mission.discodeit.mapper.BinaryContentMapper;
 import com.sprint.mission.discodeit.repository.BinaryContentRepository;
 import com.sprint.mission.discodeit.service.BinaryContentService;
 import lombok.RequiredArgsConstructor;
-import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -28,6 +27,7 @@ public class BasicBinaryContentService implements BinaryContentService {
     public BinaryContentResponse create(BinaryContentCreateRequest request) {
         BinaryContent binaryContent = new BinaryContent(
                 request.fileName(),
+                request.size(),
                 request.contentType(),
                 request.bytes());
         this.binaryContentRepository.save(binaryContent);

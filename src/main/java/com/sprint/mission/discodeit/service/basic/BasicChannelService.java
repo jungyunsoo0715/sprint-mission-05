@@ -3,7 +3,6 @@ package com.sprint.mission.discodeit.service.basic;
 import com.sprint.mission.discodeit.dto.channel.*;
 import com.sprint.mission.discodeit.entity.*;
 import com.sprint.mission.discodeit.exception.channel.ChannelNotFoundException;
-import com.sprint.mission.discodeit.exception.channel.InvalidChannelCreateRequestException;
 import com.sprint.mission.discodeit.exception.channel.InvalidChannelUpdateRequestException;
 import com.sprint.mission.discodeit.exception.channel.PrivateChannelModificationNotAllowedException;
 import com.sprint.mission.discodeit.exception.user.UserNotFoundException;
@@ -31,6 +30,7 @@ public class BasicChannelService implements ChannelService {
 
     private final ChannelMapper channelMapper;
 
+    /*
     @Override
     public ChannelResponse createChannel(ChannelCreateRequest request) {
         if (this.isPrivateChannel(request)) {
@@ -69,7 +69,40 @@ public class BasicChannelService implements ChannelService {
             );
         }
     }
+     */
 
+    @Override
+    public ChannelDto createPublicChannel(PublicChannelCreateRequest request) {
+        Channel publicChannel = new Channel(request);
+        this.channelRepository.save(publicChannel);
+
+        return this.channelMapper.toChannelDto(publicChannel);
+    }
+
+    @Override
+    public ChannelDto createPrivateChannel(PrivateChannelCreateRequest request) {
+        boolean allUserExist = request.participantIds().stream()
+                .allMatch(this.userRepository::existsById);
+
+        if (!allUserExist) throw new UserNotFoundException(
+                "프라이빗 채널에 추가하려는 사용자 중 존재하지 않는 사용자가 있습니다."
+        );
+
+        Channel privateChannel = new Channel(request);
+
+        List<ReadStatus> readStatusList = request.participantIds().stream()
+                .distinct()
+                .map(userId ->
+                        new ReadStatus(userId, privateChannel.getId()))
+                .toList();
+
+        this.channelRepository.save(privateChannel);
+        this.readStatusRepository.saveAll(readStatusList);
+
+        return this.channelMapper.toChannelDto(privateChannel);
+    }
+
+    /*
     private boolean isPrivateChannel(ChannelCreateRequest request) {
         return request.type() == ChannelType.PRIVATE
                 && request.userList() != null
@@ -84,6 +117,7 @@ public class BasicChannelService implements ChannelService {
                 && request.name() != null
                 && !request.name().isBlank();
     }
+     */
 
     private Instant findLastMessageAt(UUID channelId) {
         return this.messageRepository.findAll().stream()
@@ -93,6 +127,7 @@ public class BasicChannelService implements ChannelService {
                 .orElse(null);
     }
 
+    /*
     @Override
     public ChannelResponse find(ChannelFindRequest request) {
         Channel channel = this.findChannelEntity(request.channelId());
@@ -105,6 +140,7 @@ public class BasicChannelService implements ChannelService {
 
         return this.channelMapper.toChannelResponse(channel, lastMessageAt, userIdSet);
     }
+     */
 
     private Set<UUID> findParticipantIds(UUID channelId) {
         return this.readStatusRepository.findAll().stream()
@@ -138,16 +174,19 @@ public class BasicChannelService implements ChannelService {
                 .map(ReadStatus::getChannelId)
                 .collect(Collectors.toSet());
 
-        List<ChannelResponse> privateChannelResponsesByUserId =
+        List<ChannelResponse> privateChannelResponses =
                 this.channelRepository.findAll().stream()
                         .filter(c -> c.getType() == ChannelType.PRIVATE
                         && channelIdsByUserId.contains(c.getId()))
                         .map(c -> {
                             Channel channel = c;
+                            Set<UUID> participantIds = this.findParticipantIds(c.getId());
                             Instant lastMessageAt = this.findLastMessageAt(c.getId());
-                            Set<UUID> userIdSet = this.findParticipantIds(c.getId());
 
-                            return this.channelMapper.toChannelResponse(channel, lastMessageAt, userIdSet);
+                            return this.channelMapper.toChannelResponse(
+                                    channel,
+                                    participantIds,
+                                    lastMessageAt);
                         })
                         .distinct()
                         .collect(Collectors.toCollection(ArrayList::new));
@@ -159,18 +198,20 @@ public class BasicChannelService implements ChannelService {
                     Channel channel = c;
                     Instant lastMessageAt = this.findLastMessageAt(c.getId());
 
-                    return this.channelMapper.toChannelResponse(channel, lastMessageAt, null);
+                    return this.channelMapper.toChannelResponse(channel,
+                            null,
+                            lastMessageAt);
                 })
                 .distinct()
                 .toList();
 
-        privateChannelResponsesByUserId.addAll(publicChannelResponses);
+        privateChannelResponses.addAll(publicChannelResponses);
 
-        return new ChannelListResponse(privateChannelResponsesByUserId);
+        return new ChannelListResponse(privateChannelResponses);
     }
 
     @Override
-    public ChannelResponse update(UUID channelId, ChannelUpdateRequest request) {
+    public ChannelDto update(UUID channelId, ChannelUpdateRequest request) {
         if (request.newName() != null && request.newName().isBlank()) {
             throw new InvalidChannelUpdateRequestException(
                     "채널 이름은 공백으로만 구성할 수 없습니다."
@@ -187,11 +228,9 @@ public class BasicChannelService implements ChannelService {
 
         channel.update(request.newName(), request.newDescription());
 
-        Instant lastMessageAt = this.findLastMessageAt(channelId);
-
         this.channelRepository.save(channel);
 
-        return this.channelMapper.toChannelResponse(channel, lastMessageAt, null);
+        return this.channelMapper.toChannelDto(channel);
     }
 
     @Override
