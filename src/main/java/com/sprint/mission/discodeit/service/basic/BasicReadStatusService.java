@@ -1,9 +1,15 @@
 package com.sprint.mission.discodeit.service.basic;
 
 import com.sprint.mission.discodeit.dto.readstatus.ReadStatusCreateRequest;
+import com.sprint.mission.discodeit.dto.readstatus.ReadStatusListResponse;
 import com.sprint.mission.discodeit.dto.readstatus.ReadStatusResponse;
 import com.sprint.mission.discodeit.dto.readstatus.ReadStatusUpdateRequest;
 import com.sprint.mission.discodeit.entity.ReadStatus;
+import com.sprint.mission.discodeit.exception.DuplicateResourceException;
+import com.sprint.mission.discodeit.exception.channel.ChannelNotFoundException;
+import com.sprint.mission.discodeit.exception.readstatus.ReadStatusNotFoundException;
+import com.sprint.mission.discodeit.exception.user.UserNotFoundException;
+import com.sprint.mission.discodeit.mapper.ReadStatusMapper;
 import com.sprint.mission.discodeit.repository.ChannelRepository;
 import com.sprint.mission.discodeit.repository.ReadStatusRepository;
 import com.sprint.mission.discodeit.repository.UserRepository;
@@ -12,86 +18,97 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor // @RequiredArgsConstructor는 초기화되지 않은 final 필드 등을 대상으로 생성자를 만들어줍니다.
+@RequiredArgsConstructor
 public class BasicReadStatusService implements ReadStatusService {
+
     private final ReadStatusRepository readStatusRepository;
+
     private final UserRepository userRepository;
     private final ChannelRepository channelRepository;
 
+    private final ReadStatusMapper readStatusMapper;
+
     @Override
-    public ReadStatus create(ReadStatusCreateRequest request) {
+    public ReadStatusResponse create(ReadStatusCreateRequest request) {
         if (!this.userRepository.existsById(request.userId())) {
-            throw new NoSuchElementException("User with id " + request.userId() + " not found.");
+            throw new UserNotFoundException(
+                    "ID가 " + request.userId() + "인 사용자를 찾을 수 없습니다."
+            );
         }
-
         if (!this.channelRepository.existsById(request.channelId())) {
-            throw new NoSuchElementException("Channel with id " + request.channelId() + " not found.");
+            throw new ChannelNotFoundException(
+                    "ID가 " + request.channelId() + "인 채널을 찾을 수 없습니다."
+            );
         }
-
         if (this.readStatusRepository.findAll().stream()
                 .anyMatch(status ->
                         status.getUserId().equals(request.userId())
                                 && status.getChannelId().equals(request.channelId()))) {
-            throw new IllegalStateException("ReadStatus already exists for user " + request.userId()
-                    + " and channel " + request.channelId());
+            throw new DuplicateResourceException(
+                    "해당 사용자와 채널에 대한 메시지 수신 정보가 이미 존재합니다. 사용자 ID: "
+                            + request.userId() + ", 채널 ID: " + request.channelId()
+            );
         }
 
         ReadStatus readStatus = new ReadStatus(request.userId(), request.channelId());
         readStatusRepository.save(readStatus);
-        return readStatus;
+
+        return this.readStatusMapper.toReadStatusResponse(readStatus);
     }
 
     @Override
     public ReadStatusResponse find(UUID readStatusId) {
-        ReadStatus readStatus = this.readStatusRepository.findById(readStatusId)
-                .orElseThrow(() -> new NoSuchElementException("ReadStatus with id " + readStatusId + " not found."));
+        ReadStatus readStatus = this.findReadStatusEntity(readStatusId);
 
-        return this.toReadStatusResponse(readStatus);
+        return this.readStatusMapper.toReadStatusResponse(readStatus);
     }
 
-    private ReadStatusResponse toReadStatusResponse(ReadStatus readStatus) {
-        return new ReadStatusResponse(
-                readStatus.getId(),
-                readStatus.getUserId(),
-                readStatus.getChannelId(),
-                readStatus.getCreatedAt(),
-                readStatus.getUpdatedAt()
-        );
+    private ReadStatus findReadStatusEntity(UUID readStatusId) {
+        return this.readStatusRepository.findById(readStatusId)
+                .orElseThrow(() -> new ReadStatusNotFoundException(
+                        "ID가 " + readStatusId + "인 메시지 수신 정보를 찾을 수 없습니다."
+                ));
     }
+
 
     @Override
-    public List<ReadStatusResponse> findAllByUserId(UUID userId) {
+    public ReadStatusListResponse findAllByUserId(UUID userId) {
         if (!this.userRepository.existsById(userId)) {
-            throw new NoSuchElementException("User with id " + userId + " not found.");
+            throw new UserNotFoundException(
+                    "ID가 " + userId + "인 사용자를 찾을 수 없습니다."
+            );
         }
 
         List<ReadStatus> readStatus = this.readStatusRepository.findAllByUserId(userId);
 
-        return readStatus.stream()
-                .map(this::toReadStatusResponse)
+        List<ReadStatusResponse> readStatusResponses = readStatus.stream()
+                .map(this.readStatusMapper::toReadStatusResponse)
                 .toList();
+
+        return new ReadStatusListResponse(readStatusResponses);
     }
 
     @Override
-    public ReadStatusResponse update(UUID readStatusId, ReadStatusUpdateRequest request) {
-        ReadStatus readStatus = this.readStatusRepository.findById(readStatusId)
-                .orElseThrow(() -> new NoSuchElementException("ReadStatus with id " + readStatusId + " not found."));
+    public ReadStatusResponse update(ReadStatusUpdateRequest request) {
+        ReadStatus readStatus = this.findReadStatusEntity(request.readStatusId());
 
         readStatus.update();
-
         this.readStatusRepository.save(readStatus);
-        return this.toReadStatusResponse(readStatus);
+
+        return this.readStatusMapper.toReadStatusResponse(readStatus);
     }
 
     @Override
     public void delete(UUID readStatusId) {
         if (!this.readStatusRepository.existsById(readStatusId)) {
-            throw new NoSuchElementException("ReadStatus with id " + readStatusId + " not found.");
+            throw new ReadStatusNotFoundException(
+                    "ID가 " + readStatusId + "인 메시지 수신 정보를 찾을 수 없습니다."
+            );
         }
+
         this.readStatusRepository.deleteById(readStatusId);
     }
 }
